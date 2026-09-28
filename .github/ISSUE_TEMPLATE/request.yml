@@ -1,0 +1,40 @@
+name: Timing request
+description: Ask someone with the hardware to time a build
+title: "[request] "
+labels: [request]
+body:
+  - type: input
+    id: pr
+    attributes:
+      label: Source PR
+      placeholder: https://github.com/triton-lang/triton-ext/pull/126
+  - type: input
+    id: sha
+    attributes:
+      label: Build SHA
+      description: triton-ext commit to time
+    validations:
+      required: true
+  - type: input
+    id: base
+    attributes:
+      label: Base SHA
+      description: commit to interleave against (optional)
+  - type: input
+    id: cases
+    attributes:
+      label: Cases
+      description: comma-separated case ids (`lab cases`)
+      placeholder: conv2d_3x3_640_fp32
+    validations:
+      required: true
+  - type: input
+    id: ns
+    attributes:
+      label: num_stages
+      placeholder: "1, 2"
+  - type: textarea
+    id: note
+    attributes:
+      label: Note
+      description: chips wanted, flags, anything else

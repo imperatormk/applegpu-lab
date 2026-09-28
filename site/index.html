@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AppleGPU Lab</title>
+<style>
+:root {
+  --bg: #fbfbfa; --surface: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e4e4e2;
+  --accent: #2f6fdb; --good: #1f8a4c; --bad: #c0392b; --chip: #f0f0ee; --bar: #d6e3f8;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111113; --surface: #1a1a1d; --text: #ececee; --muted: #9a9aa2; --line: #2c2c31;
+    --accent: #6ea0ff; --good: #4cc47f; --bad: #ff6b5e; --chip: #26262b; --bar: #24344f;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 64px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 0.9em; }
+header h1 { margin: 0; font-size: 26px; letter-spacing: -0.01em; }
+header p { margin: 4px 0 0; color: var(--muted); }
+details.how { margin: 20px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+details.how summary { cursor: pointer; font-weight: 600; }
+details.how pre { margin: 10px 0 4px; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.6; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 8px; align-items: center; }
+.filters span { color: var(--muted); font-size: 13px; margin-right: 4px; }
+button.f { border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 999px;
+  padding: 3px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+button.f[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+.issue { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 18px 8px; margin: 16px 0; }
+.issue h2 { margin: 0; font-size: 18px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.issue h2 .num { color: var(--muted); font-weight: 400; }
+.state { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+.state.open { color: var(--good); }
+.req { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+.req b { color: var(--text); font-weight: 500; }
+.note { font-size: 13px; color: var(--muted); margin: 4px 0 0; white-space: pre-wrap; }
+.run { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
+.run .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--muted); }
+.run .meta .case { color: var(--text); font-weight: 600; font-family: var(--mono); }
+.machine { background: var(--chip); border-radius: 6px; padding: 0 6px; color: var(--text); }
+.scroll { overflow-x: auto; margin: 8px 0 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr:last-child td { border-bottom: 0; }
+.barcell { width: 30%; min-width: 90px; }
+.bar { height: 8px; border-radius: 4px; background: var(--bar); }
+.up { color: var(--bad); } .down { color: var(--good); }
+.bad { color: var(--bad); font-weight: 600; }
+.empty { color: var(--muted); font-size: 13px; margin: 10px 0 12px; }
+.status { color: var(--muted); margin-top: 40px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>AppleGPU Lab</h1>
+    <p>Triton kernel timings on real Apple GPUs. Requests are issues; results are comments with a <code>lab/v1</code> envelope.
+      <span id="gen"></span></p>
+  </header>
+
+  <details class="how">
+    <summary>Request or answer a timing</summary>
+<pre># ask (or use the "Timing request" issue form)
+lab request "3x3 conv regression" --cases conv2d_3x3_640_fp32 --sha 14c74569 --base b9d5c06 --ns 1,2
+
+# answer, on the machine with the GPU
+lab pull 12
+lab run --issue 12 --build ~/triton-ext@b9d5c06 --build ~/triton-ext@14c74569 --publish</pre>
+  </details>
+
+  <div class="filters" id="states"></div>
+  <div class="filters" id="machines"></div>
+  <div id="board"><p class="status">Loading…</p></div>
+</main>
+
+<script>
+const $ = (tag, props = {}, ...kids) => {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") el.className = v;
+    else if (k === "href") { if (/^https:\/\//.test(v)) el.href = v; }
+    else el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid);
+  return el;
+};
+const fmt = (n, d = 2) => Number(n).toFixed(d);
+const day = s => new Date(s).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+const short = s => (s || "").slice(0, 8);
+
+let data, view = { state: "open", machine: null };
+
+function baseLabel(run, req) {
+  const labels = run.results.map(r => r.build.label);
+  const want = req && req.base && req.base.toLowerCase();
+  const hit = want && run.results.find(r => r.build.git && r.build.git.sha && r.build.git.sha.startsWith(want));
+  return hit ? hit.build.label : labels[0];
+}
+
+function runBlock(run, req) {
+  const m = run.machine, base = baseLabel(run, req);
+  const baseMs = {};
+  for (const r of run.results) if (r.build.label === base) baseMs[r.config.num_stages] = r.ms.median;
+  const max = Math.max(...run.results.map(r => r.ms.median));
+  const rows = run.results.map(r => {
+    const ns = r.config.num_stages, b = baseMs[ns];
+    const d = r.build.label === base || !b ? null : (r.ms.median / b - 1) * 100;
+    const sha = r.build.git && r.build.git.sha;
+    const repo = r.build.git && r.build.git.repo;
+    const buildCell = sha && repo
+      ? $("a", { href: `https://github.com/${repo}/commit/${sha}`, class: "mono" }, r.build.label)
+      : $("span", { class: "mono" }, r.build.label);
+    return $("tr", {},
+      $("td", {}, buildCell, r.build.label === base ? $("span", { class: "state" }, "base") : null),
+      $("td", { class: "num" }, String(ns)),
+      $("td", { class: "num" }, $("b", {}, fmt(r.ms.median))),
+      $("td", { class: "barcell" }, $("div", { class: "bar", style: `width:${(r.ms.median / max * 100).toFixed(1)}%` })),
+      $("td", { class: "num" }, d == null ? "—" : $("span", { class: Math.abs(d) < 1.5 ? "" : d > 0 ? "up" : "down" },
+        `${d > 0 ? "+" : ""}${fmt(d, 1)} %`)),
+      $("td", { class: "num mono" }, r.ms.rounds.map(x => fmt(x)).join(" · ")),
+      $("td", { class: "num" }, `${fmt(r.ms.min)}–${fmt(r.ms.max)}`),
+      $("td", { class: "num" + (r.correctness.ok ? "" : " bad") },
+        r.correctness.max_rel_err.toExponential(1) + (r.correctness.ok ? "" : " ✗")));
+  });
+  const p = run.protocol;
+  return $("div", { class: "run" },
+    $("div", { class: "meta" },
+      $("span", { class: "case" }, run.case.id),
+      $("span", { class: "machine", title: m.id }, `${m.chip} · ${m.gpu_cores}-core`),
+      $("span", {}, `macOS ${m.macos}`),
+      $("span", {}, `triton ${short(run.env.triton_sha) || run.env.triton}`),
+      $("span", {}, `${p.rounds}×${p.samples} interleaved`),
+      $("span", {}, `@${run.posted.by} · ${day(run.posted.at)}`),
+      run.archive ? $("a", { href: run.archive }, "zip") : null,
+      $("a", { href: run.posted.url }, "comment")),
+    $("div", { class: "scroll" }, $("table", {},
+      $("thead", {}, $("tr", {}, ["build", "ns", "median ms", "", "Δ vs base", "rounds", "range", "rel err"]
+        .map((h, i) => $("th", { class: i && i !== 3 ? "num" : "" }, h)))),
+      $("tbody", {}, rows))));
+}
+
+function issueCard(it) {
+  const req = it.request || {};
+  const runs = it.runs.filter(r => !view.machine || r.machine.chip === view.machine)
+    .sort((a, b) => b.posted.at.localeCompare(a.posted.at));
+  const fields = [
+    req.pr && $("span", {}, "PR ", /^https:/.test(req.pr) ? $("a", { href: req.pr }, req.pr.replace(/^https:\/\/github.com\//, "")) : $("b", {}, req.pr)),
+    req.sha && $("span", {}, "sha ", $("b", { class: "mono" }, short(req.sha))),
+    req.base && $("span", {}, "base ", $("b", { class: "mono" }, short(req.base))),
+    req.cases && $("span", {}, "cases ", $("b", { class: "mono" }, req.cases.join(", "))),
+    req.num_stages && $("span", {}, "num_stages ", $("b", {}, req.num_stages.join(", "))),
+  ];
+  return $("section", { class: "issue" },
+    $("h2", {}, $("a", { href: it.url }, it.title), $("span", { class: "num" }, `#${it.number}`),
+      $("span", { class: "state " + it.state }, it.state)),
+    $("div", { class: "req" }, fields, $("span", {}, `by @${it.author}`)),
+    req.note ? $("p", { class: "note" }, req.note) : null,
+    runs.length ? runs.map(r => runBlock(r, req)) : $("p", { class: "empty" }, "No results yet."));
+}
+
+function filters() {
+  const pill = (label, on, fn) => { const b = $("button", { class: "f", "aria-pressed": String(on) }, label); b.onclick = fn; return b; };
+  const s = document.getElementById("states");
+  s.replaceChildren($("span", {}, "Issues"), ...["open", "all"].map(k =>
+    pill(k, view.state === k, () => { view.state = k; render(); })));
+  const chips = [...new Set(data.issues.flatMap(i => i.runs.map(r => r.machine.chip)))].sort();
+  const m = document.getElementById("machines");
+  m.replaceChildren(...(chips.length > 1 ? [$("span", {}, "Chip"),
+    pill("any", !view.machine, () => { view.machine = null; render(); }),
+    ...chips.map(c => pill(c, view.machine === c, () => { view.machine = c; render(); }))] : []));
+}
+
+function render() {
+  filters();
+  const list = data.issues
+    .filter(i => view.state === "all" || i.state === "open")
+    .filter(i => !view.machine || i.runs.some(r => r.machine.chip === view.machine) || !i.runs.length)
+    .sort((a, b) => b.updated.localeCompare(a.updated));
+  document.getElementById("board").replaceChildren(...(list.length ? list.map(issueCard)
+    : [$("p", { class: "status" }, "Nothing here yet.")]));
+}
+
+fetch("board.json", { cache: "no-store" }).then(r => r.json()).then(d => {
+  data = d;
+  document.getElementById("gen").textContent = `Updated ${new Date(d.generated).toLocaleString()}.`;
+  render();
+}).catch(() => {
+  document.getElementById("board").replaceChildren($("p", { class: "status" }, "board.json not found; the Pages workflow builds it."));
+});
+</script>
+</body>
+</html>

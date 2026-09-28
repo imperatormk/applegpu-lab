@@ -1,0 +1,117 @@
+import argparse
+import json
+import sys
+
+from . import board, machine, runner
+
+
+def _ints(s):
+    return [int(x) for x in s.split(",") if x]
+
+
+def cmd_probe(a):
+    print(json.dumps(machine.load(a.id), indent=2))
+
+
+def cmd_cases(a):
+    for c in runner.list_cases():
+        meta, _ = runner.case_meta(runner.case_path(c))
+        print(f"{meta['id']:<28} {meta.get('desc', '')}")
+
+
+def cmd_run(a):
+    cases, ns = a.case, a.ns
+    if a.issue:
+        _, req = board.read_request(a.issue)
+        cases = cases or req.get("cases", [])
+        ns = ns or req.get("num_stages")
+    if not cases:
+        sys.exit("no case given (and none in the request)")
+    for case in cases:
+        print(f"{case}: {len(a.build) or 1} build(s), {a.rounds} rounds")
+        run_dir, env = runner.run(case, a.build, ns, a.rounds, a.warmup, a.samples, a.python, a.issue)
+        print(f"\n{runner.table(env)}\n\n{run_dir}")
+        if a.publish:
+            print(board.publish(run_dir, env, a.issue, allow_dirty=a.allow_dirty))
+
+
+def cmd_show(a):
+    _, env = runner.load(a.run or runner.latest())
+    print(runner.table(env))
+
+
+def cmd_publish(a):
+    run_dir, env = runner.load(a.run or runner.latest())
+    issue = a.issue or (env.get("request") or {}).get("issue")
+    if not issue:
+        sys.exit("which issue? pass --issue N")
+    print(board.publish(run_dir, env, issue, allow_dirty=a.allow_dirty))
+
+
+def cmd_request(a):
+    req = {"pr": a.pr, "sha": a.sha, "base": a.base, "cases": a.cases.split(","),
+           "num_stages": _ints(a.ns) if a.ns else None, "note": a.note}
+    print(board.create_request(a.title, req))
+
+
+def cmd_pull(a):
+    data, req = board.read_request(a.issue)
+    print(f"#{a.issue} {data['title']} ({data['state'].lower()})\n{data['url']}\n")
+    for k, v in req.items():
+        print(f"  {k:<11} {', '.join(map(str, v)) if isinstance(v, list) else v}")
+    builds = [b for b in (req.get("base"), req.get("sha")) if b]
+    ns = f" --ns {','.join(map(str, req['num_stages']))}" if req.get("num_stages") else ""
+    print("\nwith a triton-ext checkout built at each SHA:\n")
+    print(f"  lab run --issue {a.issue}{ns} " + " ".join(f"--build <checkout@{b[:8]}>" for b in builds) + " --publish")
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="lab", description="Time Triton kernels on Apple GPUs; publish to the board.")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("probe", help="show this machine's record; --id names it")
+    s.add_argument("--id")
+    s.set_defaults(fn=cmd_probe)
+
+    sub.add_parser("cases", help="list cases").set_defaults(fn=cmd_cases)
+
+    s = sub.add_parser("run", help="time cases, interleaving builds")
+    s.add_argument("case", nargs="*")
+    s.add_argument("--build", action="append", default=[], metavar="CHECKOUT",
+                   help="triton-ext checkout to time; repeat to A/B (default: installed plugin)")
+    s.add_argument("--ns", type=_ints, help="num_stages list, e.g. 1,2 (default: the case's)")
+    s.add_argument("--rounds", type=int, default=3)
+    s.add_argument("--warmup", type=int, default=5)
+    s.add_argument("--samples", type=int, default=20)
+    s.add_argument("--python", default=sys.executable, help="interpreter with torch + triton")
+    s.add_argument("--issue", type=int, help="board request to answer (cases/ns default from it)")
+    s.add_argument("--publish", action="store_true")
+    s.add_argument("--allow-dirty", action="store_true")
+    s.set_defaults(fn=cmd_run)
+
+    s = sub.add_parser("show", help="print a run's table (default: latest)")
+    s.add_argument("run", nargs="?")
+    s.set_defaults(fn=cmd_show)
+
+    s = sub.add_parser("publish", help="upload a run and comment it on a board issue")
+    s.add_argument("run", nargs="?")
+    s.add_argument("--issue", type=int)
+    s.add_argument("--allow-dirty", action="store_true")
+    s.set_defaults(fn=cmd_publish)
+
+    s = sub.add_parser("request", help="open a timing request on the board")
+    s.add_argument("title")
+    s.add_argument("--cases", required=True)
+    s.add_argument("--sha", required=True)
+    s.add_argument("--base")
+    s.add_argument("--pr")
+    s.add_argument("--ns")
+    s.add_argument("--note")
+    s.set_defaults(fn=cmd_request)
+
+    s = sub.add_parser("pull", help="show a request and the command that answers it")
+    s.add_argument("issue", type=int)
+    s.set_defaults(fn=cmd_pull)
+
+    a = p.parse_args(argv)
+    a.fn(a)
