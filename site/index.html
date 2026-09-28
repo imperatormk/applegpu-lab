@@ -41,6 +41,9 @@ button.f[aria-pressed="true"] { background: var(--text); color: var(--bg); borde
 .req { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
 .req b { color: var(--text); font-weight: 500; }
 .note { font-size: 13px; color: var(--muted); margin: 4px 0 0; white-space: pre-wrap; }
+.summary { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 12px 0 2px; font-size: 13px; }
+.summary .lbl { color: var(--muted); font-family: var(--mono); margin-right: 4px; }
+.sum { background: var(--chip); border-radius: 6px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
 .run { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
 .run .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--muted); }
 .run .meta .case { color: var(--text); font-weight: 600; font-family: var(--mono); }
@@ -150,6 +153,31 @@ function runBlock(run, req) {
       $("tbody", {}, rows))));
 }
 
+function chipSummary(it) {
+  const req = it.request || {};
+  if (!req.sha || !req.base) return null;
+  const has = (r, sha) => r.build.git && r.build.git.sha && r.build.git.sha.startsWith(sha.toLowerCase());
+  const latest = {};
+  for (const run of it.runs) {
+    if (!run.results.some(r => has(r, req.sha)) || !run.results.some(r => has(r, req.base))) continue;
+    const prev = latest[run.machine.id];
+    if (!prev || run.posted.at > prev.posted.at) latest[run.machine.id] = run;
+  }
+  const items = Object.values(latest).map(run => {
+    const base = Object.fromEntries(run.results.filter(r => has(r, req.base)).map(r => [r.config.num_stages, r.ms.median]));
+    const deltas = run.results.filter(r => has(r, req.sha) && base[r.config.num_stages])
+      .map(r => ({ ns: r.config.num_stages, d: (r.ms.median / base[r.config.num_stages] - 1) * 100 }))
+      .sort((a, b) => a.ns - b.ns);
+    return $("span", { class: "sum", title: run.machine.id },
+      $("b", {}, `${run.machine.chip.replace(/^Apple /, "")} ${run.machine.gpu_cores}c`),
+      ...deltas.map(({ ns, d }) => $("span", { class: Math.abs(d) < 1.5 ? "" : d > 0 ? "up" : "down" },
+        ` ns${ns} ${d > 0 ? "+" : ""}${fmt(d, 1)} %`)));
+  });
+  if (!items.length) return null;
+  return $("div", { class: "summary" },
+    $("span", { class: "lbl" }, `${short(req.sha)} vs ${short(req.base)}`), items);
+}
+
 function issueCard(it) {
   const req = it.request || {};
   const runs = it.runs.filter(r => !view.machine || r.machine.chip === view.machine)
@@ -166,6 +194,7 @@ function issueCard(it) {
       $("span", { class: "state " + it.state }, it.state)),
     $("div", { class: "req" }, fields, $("span", {}, `by @${it.author}`)),
     req.note ? $("p", { class: "note" }, req.note) : null,
+    chipSummary(it),
     runs.length ? runs.map(r => runBlock(r, req)) : $("p", { class: "empty" }, "No results yet."));
 }
 
