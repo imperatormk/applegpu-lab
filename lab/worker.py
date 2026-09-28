@@ -47,6 +47,10 @@ def main():
         got = os.path.realpath(os.path.dirname(triton_apple_backend.__file__))
         if not got.startswith(want):
             sys.exit(f"lab worker: loaded triton_apple_backend from {got}, not {want}")
+        checkout = os.path.realpath(os.path.join(want, "..", "..", ".."))
+        if not os.path.realpath(plugin).startswith(checkout + os.sep):
+            sys.exit(f"lab worker: plugin {plugin} is not from {checkout}; link build/lib/libapplegpu_backend.dylib "
+                     f"into backend/AppleGPU/python/triton_apple_backend/")
 
     case_spec = importlib.util.spec_from_file_location("lab_case", spec["case_path"])
     case = importlib.util.module_from_spec(case_spec)
