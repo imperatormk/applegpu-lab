@@ -140,7 +140,9 @@ function runBlock(run, req) {
       $("span", {}, `triton ${short(run.env.triton_sha) || run.env.triton}`),
       $("span", {}, `${p.rounds}×${p.samples} interleaved`),
       $("span", {}, `@${run.posted.by} · ${day(run.posted.at)}`),
-      run.archive ? $("a", { href: run.archive }, "zip") : null,
+      run.archive && run.archive_check === "ok"
+        ? $("a", { href: run.archive, title: "contents checked against this envelope" }, "zip ✓")
+        : $("span", { class: "bad", title: run.archive_check || "" }, "archive rejected"),
       $("a", { href: run.posted.url }, "comment")),
     $("div", { class: "scroll" }, $("table", {},
       $("thead", {}, $("tr", {}, ["build", "ns", "median ms", "", "Δ vs base", "rounds", "range", "rel err"]

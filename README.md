@@ -5,7 +5,7 @@ source-repo PR threads.
 
 - **Requests** are issues here (the *Timing request* form or `lab request`).
 - **Results** are comments on those issues. Each comment has a table and a `lab/v1` envelope in a
-  ```` ```json lab-result ```` block.
+  fenced code block tagged `json lab-result`.
 - **Run archives** (result.json, MSL / metallib / TTGIR dumps) are assets on the `runs` release.
 - **The page** is built from the issues by `.github/workflows/board.yml` and deployed to Pages.
   Nothing is committed per run.
