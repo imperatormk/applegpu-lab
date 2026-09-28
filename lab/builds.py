@@ -79,7 +79,7 @@ def target_env(python):
 
 
 def ensure(rev, python):
-    """Return a built checkout of triton-ext at rev, building it if needed."""
+    """Return (checkout of triton-ext at rev, whether it was built just now)."""
     for tool in ("cmake", "ninja"):
         if not shutil.which(tool):
             raise SystemExit(f"{tool} not found; pip install cmake ninja")
@@ -91,7 +91,7 @@ def ensure(rev, python):
     want = {"sha": sha, "python": env["python"], "triton_sha": env["triton_sha"], "llvm": env["llvm"],
             "torch_dir": env["torch_dir"]}
     if stamp.exists() and json.loads(stamp.read_text()) == want and (tree / PKG / "libapplegpu_backend.dylib").exists():
-        return tree
+        return tree, False
 
     if not tree.exists():
         _run(["git", "-C", str(src), "worktree", "add", "--quiet", "--detach", str(tree), sha])
@@ -116,4 +116,4 @@ def ensure(rev, python):
     if not (pkg / "libapplegpu_backend.dylib").exists():
         raise SystemExit(f"build finished but no libapplegpu_backend.dylib under {build}/lib")
     stamp.write_text(json.dumps(want, indent=2) + "\n")
-    return tree
+    return tree, True

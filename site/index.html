@@ -129,7 +129,13 @@ function runBlock(run, req) {
       $("td", { class: "barcell" }, $("div", { class: "bar", style: `width:${(r.ms.median / max * 100).toFixed(1)}%` })),
       $("td", { class: "num" }, d == null ? "—" : $("span", { class: Math.abs(d) < 1.5 ? "" : d > 0 ? "up" : "down" },
         `${d > 0 ? "+" : ""}${fmt(d, 1)} %`)),
-      $("td", { class: "num mono" }, r.ms.rounds.map(x => fmt(x)).join(" · ")),
+      (() => {
+        const spread = Math.max(...r.ms.rounds) / Math.min(...r.ms.rounds) - 1;
+        const noisy = spread > (run.protocol.noise_limit || 0.03);
+        return $("td", { class: "num mono" + (noisy ? " bad" : ""),
+          title: noisy ? `round medians differ by ${fmt(spread * 100, 1)} %` : "" },
+          r.ms.rounds.map(x => fmt(x)).join(" · ") + (noisy ? " ⚠" : ""));
+      })(),
       $("td", { class: "num" }, `${fmt(r.ms.min)}–${fmt(r.ms.max)}`),
       $("td", { class: "num" + (r.correctness.ok ? "" : " bad") },
         r.correctness.max_rel_err.toExponential(1) + (r.correctness.ok ? "" : " ✗")));

@@ -16,6 +16,7 @@ CASES = Path(__file__).parent / "cases"
 WORKER = Path(__file__).parent / "worker.py"
 RUNS = Path(os.environ.get("LAB_RUNS", Path.home() / "lab-runs"))
 DUMP_EXTS = (".msl", ".metal", ".metallib", ".ttgir", ".ttir", ".json")
+NOISE = 0.03
 
 
 def case_path(case_id):
@@ -103,7 +104,11 @@ def run(case_id, builds, ns_list, rounds, warmup, samples, python, issue=None, l
     order = [(b, ns) for b in builds for ns in ns_list]
     for r in range(rounds):
         for b, ns in (order if r % 2 == 0 else order[::-1]):
-            res, cache = _cell(b, ns, run_dir, case_file, warmup, samples, python)
+            try:
+                res, cache = _cell(b, ns, run_dir, case_file, warmup, samples, python)
+            except SystemExit:
+                shutil.rmtree(run_dir, ignore_errors=True)
+                raise
             c = cells[(b["label"], ns)]
             c["rounds"].append(res)
             c["cache"] = cache
@@ -126,6 +131,7 @@ def run(case_id, builds, ns_list, rounds, warmup, samples, python, issue=None, l
                     "median": round(statistics.median(rr["median"] for rr in c["rounds"]), 3),
                     "min": min(flat), "max": max(flat),
                     "rounds": [rr["median"] for rr in c["rounds"]],
+                    "spread": round(spread({"rounds": [rr["median"] for rr in c["rounds"]]}), 4),
                     "samples": [rr["samples"] for rr in c["rounds"]],
                 },
                 "correctness": {"max_rel_err": err, "tol": case.get("tol"), "ok": err <= case.get("tol", 1e-3)},
@@ -141,7 +147,8 @@ def run(case_id, builds, ns_list, rounds, warmup, samples, python, issue=None, l
         "env": env,
         "protocol": {"warmup": warmup, "samples": samples, "rounds": rounds, "interleaved": True,
                      "order": "alternating per round", "sync": "torch.mps.synchronize per launch",
-                     "timer": "time.perf_counter", "cache": "fresh TRITON_CACHE_DIR per build x num_stages"},
+                     "timer": "time.perf_counter", "cache": "fresh TRITON_CACHE_DIR per build x num_stages",
+                     "noise_limit": NOISE},
         "request": {"issue": issue} if issue else None,
         "results": results,
     }
@@ -173,6 +180,16 @@ def latest():
     return runs[-1]
 
 
+def spread(ms):
+    return max(ms["rounds"]) / min(ms["rounds"]) - 1
+
+
+def noisy(env):
+    limit = env["protocol"].get("noise_limit", NOISE)
+    return [f"{r['build']['label']} ns={r['config']['num_stages']}" for r in env["results"]
+            if spread(r["ms"]) > limit]
+
+
 def table(env):
     rows = env["results"]
     first = rows[0]["build"]["label"]
@@ -187,7 +204,8 @@ def table(env):
         b = base.get(ns)
         delta = "—" if r["build"]["label"] == first or not b else f"{(ms['median'] / b - 1) * 100:+.1f} %"
         ok = "" if r["correctness"]["ok"] else " ✗"
+        noise = " ⚠" if spread(ms) > env["protocol"].get("noise_limit", NOISE) else ""
         out.append(f"| `{r['build']['label']}` | {ns} | {ms['median']:.2f} | "
-                   f"{', '.join(f'{x:.2f}' for x in ms['rounds'])} | {ms['min']:.2f}–{ms['max']:.2f} | {delta} | "
+                   f"{', '.join(f'{x:.2f}' for x in ms['rounds'])}{noise} | {ms['min']:.2f}–{ms['max']:.2f} | {delta} | "
                    f"{r['correctness']['max_rel_err']:.1e}{ok} |")
     return "\n".join(out)

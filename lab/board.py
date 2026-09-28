@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .runner import table
+from .runner import NOISE, noisy, table
 
 BOARD = os.environ.get("LAB_BOARD", "imperatormk/applegpu-lab")
 RELEASE = "runs"
@@ -60,8 +60,11 @@ def read_request(issue, board=BOARD):
     return data, parse_request(data["body"])
 
 
-def _refusals(env, allow_dirty):
+def _refusals(env, allow_dirty, force):
     why = []
+    if not force:
+        why += [f"{row} is noisy (round medians differ by more than {NOISE:.0%}); rerun or --force"
+                for row in noisy(env)]
     for r in env["results"]:
         g = r["build"]["git"]
         if not g or not g.get("sha"):
@@ -71,8 +74,8 @@ def _refusals(env, allow_dirty):
     return sorted(set(why))
 
 
-def publish(run_dir, env, issue, board=BOARD, allow_dirty=False):
-    why = _refusals(env, allow_dirty)
+def publish(run_dir, env, issue, board=BOARD, allow_dirty=False, force=False):
+    why = _refusals(env, allow_dirty, force)
     if why:
         raise SystemExit("refusing to publish:\n  " + "\n  ".join(why))
 

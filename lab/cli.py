@@ -1,7 +1,7 @@
 import argparse
 import json
 import sys
-
+import time
 from pathlib import Path
 
 from . import board, builds, machine, runner
@@ -13,7 +13,10 @@ def _ints(s):
 
 def _checkout(ref, python):
     p = Path(ref).expanduser()
-    return str(p) if p.is_dir() else str(builds.ensure(ref, python))
+    if p.is_dir():
+        return str(p), False
+    tree, built = builds.ensure(ref, python)
+    return str(tree), built
 
 
 def cmd_probe(a):
@@ -35,18 +38,26 @@ def cmd_run(a):
         refs = refs or [r for r in (req.get("base"), req.get("sha")) if r]
     if not cases:
         sys.exit("no case given (and none in the request)")
-    checkouts = [_checkout(r, a.python) for r in refs]
+    resolved = [_checkout(r, a.python) for r in refs]
+    checkouts = [c for c, _ in resolved]
+    if any(built for _, built in resolved) and a.cooldown:
+        print(f"  cooling down {a.cooldown}s after the build")
+        time.sleep(a.cooldown)
     for case in cases:
         print(f"{case}: {len(checkouts) or 1} build(s), {a.rounds} rounds")
         run_dir, env = runner.run(case, checkouts, ns, a.rounds, a.warmup, a.samples, a.python, a.issue)
         print(f"\n{runner.table(env)}\n\n{run_dir}")
+        noisy = runner.noisy(env)
+        if noisy:
+            print(f"\nnoisy: round medians differ by more than {runner.NOISE:.0%} in {', '.join(noisy)}. "
+                  f"Something else was using the machine; rerun, or add --rounds 5.")
         if a.publish:
-            print(board.publish(run_dir, env, a.issue, allow_dirty=a.allow_dirty))
+            print(board.publish(run_dir, env, a.issue, allow_dirty=a.allow_dirty, force=a.force))
 
 
 def cmd_build(a):
     for rev in a.rev:
-        print(builds.ensure(rev, a.python))
+        print(builds.ensure(rev, a.python)[0])
 
 
 def cmd_show(a):
@@ -59,7 +70,7 @@ def cmd_publish(a):
     issue = a.issue or (env.get("request") or {}).get("issue")
     if not issue:
         sys.exit("which issue? pass --issue N")
-    print(board.publish(run_dir, env, issue, allow_dirty=a.allow_dirty))
+    print(board.publish(run_dir, env, issue, allow_dirty=a.allow_dirty, force=a.force))
 
 
 def cmd_request(a):
@@ -98,8 +109,10 @@ def main(argv=None):
     s.add_argument("--samples", type=int, default=20)
     s.add_argument("--python", default=sys.executable, help="interpreter with torch + triton")
     s.add_argument("--issue", type=int, help="board request to answer (cases/ns default from it)")
+    s.add_argument("--cooldown", type=int, default=60, help="seconds to wait after building before timing")
     s.add_argument("--publish", action="store_true")
     s.add_argument("--allow-dirty", action="store_true")
+    s.add_argument("--force", action="store_true", help="publish even if noisy")
     s.set_defaults(fn=cmd_run)
 
     s = sub.add_parser("build", help="build the plugin at triton-ext commits into ~/lab-builds")
@@ -115,6 +128,7 @@ def main(argv=None):
     s.add_argument("run", nargs="?")
     s.add_argument("--issue", type=int)
     s.add_argument("--allow-dirty", action="store_true")
+    s.add_argument("--force", action="store_true", help="publish even if noisy")
     s.set_defaults(fn=cmd_publish)
 
     s = sub.add_parser("request", help="open a timing request on the board")

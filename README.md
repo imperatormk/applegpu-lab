@@ -54,6 +54,10 @@ launches with `torch.mps.synchronize()` around each. Rounds (default 3) alternat
 order, forward then reversed. The worker records the path and sha256 of the plugin dylib
 it actually loaded, and fails if that dylib is not from the requested checkout.
 
+If a row's round medians differ by more than 3 %, something else was using the machine. The
+row is flagged ⚠ and `publish` refuses the run unless you pass `--force`. After building a
+plugin, `run` waits 60 s (`--cooldown`) before timing.
+
 Two results are comparable only if they have the same `machine.id`, `case.id` + `case.sha256`,
 `config`, and `protocol`. The Δ column only compares builds within one run, because only
 those were interleaved.
