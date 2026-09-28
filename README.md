@@ -25,18 +25,23 @@ lab probe --id <short-name>        # e.g. darko-m1pro; saved to ~/.config/lab/ma
 ## Answer a request
 
 ```sh
-lab pull 12                                      # what's asked, and the command to run
-lab run --issue 12 \
-  --build ~/src/triton-ext-b9d5c06 \
-  --build ~/src/triton-ext-14c74569              # interleaved A/B; cases + num_stages come from the issue
-lab show                                         # the table of the latest run
-lab publish --issue 12                           # zip -> release asset, table + envelope -> comment
+lab pull 12                  # what's asked
+lab run --issue 12           # builds the request's base + sha if needed, then an interleaved A/B
+lab show                     # the table of the latest run
+lab publish --issue 12       # zip -> release asset, table + envelope -> comment
 ```
 
-Each `--build` is a triton-ext checkout whose plugin is built
-(`backend/AppleGPU/python/triton_apple_backend/libapplegpu_backend.dylib` present). With no
-`--build`, the installed plugin is timed. You can look at that run locally, but it can't be
-published because there is no SHA to pin it to.
+(`lab run --issue 12 --publish` does both.)
+
+Builds go to `~/lab-builds/<sha8>`. `lab` keeps its own clone of the fork there, builds against
+the Triton, LLVM and torch of the venv running `lab`, and reuses a build until any of those
+change. The first build of a commit takes about a minute. Needs `cmake` and `ninja`; set
+`LLVM_INSTALL_DIR` if your Triton isn't a source checkout. `LAB_TRITON_EXT_SRC=<clone>` reuses a
+clone you already have.
+
+`--build` takes a commit or a path to a triton-ext checkout with its plugin built; repeat it to
+time any set of builds. With neither `--issue` nor `--build`, the installed plugin is timed. You
+can look at that run locally, but it can't be published because there is no SHA to pin it to.
 
 `publish` refuses a build with uncommitted changes under `backend/AppleGPU` unless you pass
 `--allow-dirty`.
